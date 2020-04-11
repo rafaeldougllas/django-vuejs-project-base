@@ -1,12 +1,11 @@
 from django.contrib.auth.models import User
-from django.http import JsonResponse
+from rest_framework import viewsets
+from .serializers import UserSerializer
 
 
-def api_users(request):
-    users = User.objects.all()
-    data = [
-        {'username': user.username}
-        for user in users
-    ]
-    response = {'data': data}
-    return JsonResponse(response)
+class UserViewSet(viewsets.ModelViewSet):
+    '''
+    Este viewset fornece automaticamente ações em 'list' e 'detail'.
+    '''
+    queryset = User.objects.all()
+    serializer_class = UserSerializer

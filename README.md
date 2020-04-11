@@ -1,12 +1,9 @@
-# django-vuejs-03-separated
+# django-rest-framework-vuejs
 
-Django e VueJS separados. Rodando em portas diferentes.
+Neste projeto eu uso [Django Rest Framework][1] e [VueJS][2] com todos os recursos que o [vue-cli](https://cli.vuejs.org/) pode oferecer.
 
-Neste projeto eu uso [Django][1] apenas como um serviço de APIs, e uso o [VueJS][2] com todos os recursos que o [vue-cli](https://cli.vuejs.org/) pode oferecer.
+![django-vue04.png](img/django-vue04.png)
 
-![django-vue03.png](img/django-vue03.png)
-
-## Como rodar o projeto?
 
 Em Dev rodar **dois** servidores, back e front.
 
@@ -20,8 +17,8 @@ Em Dev rodar **dois** servidores, back e front.
 * Crie um super usuário
 
 ```
-git clone https://github.com/rg3915/django-vuejs-03-separated.git
-cd django-vuejs-03-separated
+git clone https://github.com/rg3915/django-rest-framework-vuejs.git
+cd django-rest-framework-vuejs
 cd backend
 python -m venv .venv
 source .venv/bin/activate
@@ -61,14 +58,14 @@ mkdir backend
 cd backend
 python -m venv .venv
 source .venv/bin/activate
-pip install -U pip; pip install django==2.2.12 django-extensions python-decouple dj-database-url
+pip install Django==2.2.12 djangorestframework django-extensions dj-database-url python-decouple django-cors-headers
 django-admin startproject myproject .
 cd myproject
 python ../manage.py startapp core
 cd ..
 python manage.py migrate
 # Crie um super usuário
-python manage.py createsuperuser --username="admin"
+python manage.py createsuperuser --username="admin" --email=""
 ```
 
 #### Criando uma pasta chamada contrib com um env_gen.py
@@ -89,7 +86,9 @@ Em `settings.py` insira em `INSTALLED_APPS`...
 INSTALLED_APPS = [
     ...
     'django_extensions',
-    'myproject.core'
+    'rest_framework',
+    'corsheaders',
+    'myproject.core',
 ]
 ```
 
@@ -109,6 +108,19 @@ SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default=[], cast=Csv())
+```
+
+Configurando o [django-cors-headers][3]:
+
+```
+MIDDLEWARE = [
+    ...
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    ...
+]
+
+CORS_ORIGIN_ALLOW_ALL = True
 ```
 
 E este trecho, onde vamos usar o sqlite:
@@ -145,72 +157,93 @@ STATICFILES_DIRS = [
 ]
 ```
 
-Depois entre na pasta
+Depois entre na pasta `myproject` e vamos editar `urls.py`:
 
 ```
-cd myproject/core/
+cat << EOF > urls.py
+from django.contrib import admin
+from django.urls import include, path
+
+urlpatterns = [
+    path('api/', include('myproject.core.urls')),
+    path('admin/', admin.site.urls),
+]
+EOF
 ```
 
-e vamos editar o `views.py`.
+Depois entre na pasta `core`:
+
+```
+cd core/
+```
+
+e vamos editar `views.py`:
 
 ```
 cat << EOF > views.py
 from django.contrib.auth.models import User
-from django.http import JsonResponse
+from rest_framework import viewsets
+from .serializers import UserSerializer
 
 
-def api_users(request):
-    users = User.objects.all()
-    data = [
-        {'username': user.username}
-        for user in users
-    ]
-    response = {'data': data}
-    return JsonResponse(response)
+class UserViewSet(viewsets.ModelViewSet):
+    '''
+    Este viewset fornece automaticamente ações em 'list' e 'detail'.
+    '''
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
 EOF
 ```
 
-Agora vamos criar um `urls.py` na pasta `core`.
+Ainda na pasta `core` vamos criar um `urls.py`:
 
 ```
 cat << EOF > urls.py
-from django.urls import path
+from django.urls import include, path
+from rest_framework import routers
 from myproject.core import views as v
 
 
 app_name = 'core'
 
 
+router = routers.DefaultRouter()
+router.register('user', v.UserViewSet)
+
 urlpatterns = [
-    path('api/users/', v.api_users, name='users'),
+    path('', include(router.urls)),
 ]
 EOF
 ```
 
-Volte para a pasta `myproject` e edite o `urls.py` principal:
+... e `serializers.py`:
 
 ```
-cd ..
+cat << EOF > serializers.py
+from rest_framework import serializers
+from django.contrib.auth.models import User
 
-cat << EOF > urls.py
-from django.contrib import admin
-from django.urls import include, path
 
-urlpatterns = [
-    path('', include('myproject.core.urls')),
-    path('admin/', admin.site.urls),
-]
+class UserSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = User
+        fields = (
+            'id',
+            'username',
+            'first_name',
+            'last_name',
+            'email',
+        )
 EOF
 ```
-
-Basicamente o backend está pronto.
-
 
 #### Gravando alguns dados no banco
 
 Vamos criar alguns usuários no Django, para isso vá para a pasta onde está o `manage.py` e digite:
 
 ```
+# pasta backend
 python manage.py shell_plus
 ```
 
@@ -223,7 +256,7 @@ names = ['fulano', 'beltrano', 'cicrano']
 
 Agora vamos para o front.
 
-### Frontend
+## Frontend
 
 Volte para a pasta principal do projeto:
 
@@ -235,6 +268,8 @@ cd ..
 nvm use 12
 vue create frontend
 cd frontend
+npm install axios
+vue add vuetify
 ```
 
 #### Servindo o front
@@ -261,262 +296,163 @@ Isso vai rodar o servidor de back na porta **8000**.
 
 Entre na pasta `frontend`.
 
-Vamos instalar o [bootstrap-vue](https://bootstrap-vue.js.org/).
+Repare que instalamos o [vuetifyjs][5], uma poderosa ferramenta de template para VueJS baseado em Material Design.
+
+Vamos editar `App.vue`:
+
+Acrescente `<Users/>` logo abaixo de `<HelloWorld/>`:
 
 ```
-npm install bootstrap-vue
-```
-
-Vamos editar o arquivo `main.js`:
-
-```
-cat << EOF > src/main.js
-import Vue from 'vue'
-import App from './App.vue'
-import BootstrapVue from 'bootstrap-vue'
-import 'bootstrap/dist/css/bootstrap.css'
-import 'bootstrap-vue/dist/bootstrap-vue.css'
-
-Vue.config.productionTip = false
-Vue.use(BootstrapVue);
-
-new Vue({
-  render: h => h(App),
-}).\$mount('#app')
-EOF
-```
-
-Vamos criar um componente Navbar.
-
-```
-cat << EOF > src/components/Navbar.vue
-<template>
-  <b-navbar toggleable="md" type="light" variant="light">
-    <b-navbar-toggle target="nav_collapse"></b-navbar-toggle>
-    <b-navbar-brand href="#">NavBar</b-navbar-brand>
-    <b-collapse is-nav id="nav_collapse">
-      <b-navbar-nav>
-        <b-nav-item :to="{'name': 'index'}">Home</b-nav-item>
-      </b-navbar-nav>
-    </b-collapse>
-  </b-navbar>
-</template>
-EOF
-```
-
-Em `App.vue` precisamos registrar esse componente.
-
-```
-cat << EOF > src/App.vue
-<template>
-  <div id="app">
-    <Navbar/>
-    <img alt="Vue logo" src="./assets/logo.png">
-    <HelloWorld msg="Welcome to Your Vue.js App"/>
-  </div>
-</template>
-
-<script>
-import HelloWorld from './components/HelloWorld.vue'
-import Navbar from './components/Navbar.vue'
-
-export default {
-  name: 'app',
-  components: {
-    HelloWorld,
-    Navbar
-  }
-}
-</script>
-
-<style>
-#app {
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-align: center;
-  color: #2c3e50;
-}
-</style>
-EOF
-```
-
-E vamos editar `HelloWorld.vue`.
-
-```
-cat << EOF > src/components/HelloWorld.vue
-<template>
-  <div class="hello">
-    <h1>{{ msg }}</h1>
-    <p>
-      For a guide and recipes on how to configure / customize this project,<br>
-      check out the
-      <a href="https://cli.vuejs.org" target="_blank" rel="noopener">vue-cli documentation</a>.
-    </p>
-    <p>Este é um projeto feito com <a href="https://www.djangoproject.com/" target="_blank">Django</a> e <a href="https://vuejs.org/" target="_blank">VueJS</a>.</p>
-    <p>
-      <a href="https://github.com/rg3915/django-vuejs-03-separated" target="_blank">Veja no GitHub</a>
-    </p>
-  </div>
-</template>
-
-<script>
-export default {
-  name: 'HelloWorld',
-  props: {
-    msg: String
-  }
-}
-</script>
-
-<!-- Add "scoped" attribute to limit CSS to this component only -->
-<style scoped>
-h3 {
-  margin: 40px 0 0;
-}
-ul {
-  list-style-type: none;
-  padding: 0;
-}
-li {
-  display: inline-block;
-  margin: 0 10px;
-}
-a {
-  color: #42b983;
-}
-</style>
-EOF
-```
-
-Vamos criar mais um componente:
-
-```
-cat << EOF > src/components/Users.vue
-<template>
-  <div>
-    <b-container>
-      <b-table striped hover :items="users"></b-table>
-    </b-container>
-  </div>
-</template>
-<script>
-export default {
-  data() {
-    return {
-      users: [
-        { 'username': 'huguinho' },
-        { 'username': 'zezinho' },
-        { 'username': 'luizinho' },
-      ]
-    }
-  }
-}
-</script>
-EOF
-```
-
-E registre o novo componente em `App.vue`.
-
-```
-    ...
-    <HelloWorld msg="Welcome to Your Vue.js App"/>
+  <v-content>
+    <HelloWorld/>
     <Users/>
+  </v-content>
+```
 
+E acrescente:
+
+```
 ...
-import Users from './components/Users.vue'
+import Users from './components/Users';
 
-export default {
-  name: 'app',
   components: {
     HelloWorld,
-    Navbar,
-    Users  # <-----
-  }
-}
+    Users
+  },
 ```
 
-Agora vamos usar o [axios][3] para fazer chamadas para o backend.
-
-```
-npm install axios
-```
-
-E edite novamente `Users.vue`.
+Agora vamos criar o componente `Users.vue`:
 
 ```
 cat << EOF > src/components/Users.vue
 <template>
-  <div>
-    <b-container>
-      <b-table striped hover :items="users"></b-table>
-    </b-container>
-  </div>
+
+  <v-col class="mb-5" cols="12">
+    <v-item-group multiple>
+      <v-container>
+        <v-row>
+          <v-col
+            v-for="user in users" :key="user.id"
+            cols="12"
+            md="4"
+          >
+            <v-item>
+              <v-card
+                class="mx-auto"
+                max-width="344"
+                outlined
+              >
+                <v-list-item three-line>
+                  <v-list-item-content>
+                    <v-list-item-title class="headline mb-1">{{ user.username }}</v-list-item-title>
+                  </v-list-item-content>
+
+                  <v-img
+                    v-if=user.url
+                    :src="require('../assets/'+user.url)"
+                    class="my-3"
+                    contain
+                    height="80"
+                  />
+                </v-list-item>
+
+                <v-card-actions>
+                  <v-btn text>Button</v-btn>
+                  <v-btn text>Button</v-btn>
+                </v-card-actions>
+              </v-card>
+            </v-item>
+          </v-col>
+        </v-row>
+      </v-container>
+    </v-item-group>
+  </v-col>
+
 </template>
+
 <script>
-import axios from 'axios'
+  import axios from 'axios'
 
-const endpoint = 'http://localhost:8000/'
+  const endpoint = 'http://localhost:8000/api/'
 
-export default {
-  data() {
-    return {
-      users: []
+  export default {
+    name: 'Users',
+
+    data: () => ({
+      users: [
+        { 'id': 5, 'username': 'Huguinho', 'url': 'huguinho.png' },
+        { 'id': 6, 'username': 'Zezinho', 'url': 'zezinho.png' },
+        { 'id': 7, 'username': 'Luizinho', 'url': 'luizinho.png' },
+        { 'id': 8, 'username': 'Tio Patinhas' },
+        { 'id': 9, 'username': 'Pato Donald' },
+      ]
+    }),
+    created() {
+      axios.get(endpoint + 'user/')
+        .then(response => {
+          response.data.map(item => {
+            return this.users.push(item)
+          })
+        })
     }
-  },
-  created() {
-    axios.get(endpoint + 'api/users/')
-      .then(response => {
-        this.users = response.data.data;
-      })
   }
-}
 </script>
 EOF
 ```
 
-Aqui nós teremos um grande problema:
+#### Imagens
+
+Copie as imagens para o lugar correto.
 
 ```
-Access to XMLHttpRequest at 'http://localhost:8000/api/users/' from origin 'http://localhost:8080' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+wget -O src/assets/huguinho.png https://raw.githubusercontent.com/rg3915/django-rest-framework-vuejs/master/img/huguinho.png
+wget -O src/assets/zezinho.png https://raw.githubusercontent.com/rg3915/django-rest-framework-vuejs/master/img/zezinho.png
+wget -O src/assets/luizinho.png https://raw.githubusercontent.com/rg3915/django-rest-framework-vuejs/master/img/luizinho.png
 ```
 
-Este é o famoso problema de [CORS headers][5]. Para resolver isso, vamos instalar uma lib no Django.
-
-Entre na pasta **backend**.
-
-```
-pip install django-cors-headers
-```
-
-Depois vá em `settings.py`:
-
-```
-INSTALLED_APPS = [
-    ...
-    'corsheaders',
-    ...
-]
-```
-
-Em `MIDDLEWARE` acrescente:
-
-```
-MIDDLEWARE = [
-    ...
-    'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    ...
-]
-
-CORS_ORIGIN_ALLOW_ALL = True
-```
 
 Prontinho!!!
 
 
-[1]: https://www.djangoproject.com/
+### Links:
+
+[Django Rest Framework Quickstart][6]
+
+[Django Rest Framework documentação][1]
+
+[django-cors-headers][3]
+
+[VueJS][2]
+
+[Vuetify][5]
+
+[Minicurso: Frontend em 2018 - um guia pra quem tá perdido com Tony Lâmpada][12]
+
+[Minicurso: Vue.JS - O basicão com Tony Lâmpada][13]
+
+[Construindo um front-end moderno com Vue.js - WorkWeb 2018 com Alefe Souza][7]
+
+[ComDevShow 2018 - #3 Construindo um front-end moderno com Vue.js com Alefe Souza][8]
+
+[[Gravação] Live streaming: Vue.js, Vuex e Mirage JS com Fabio Vedovelli][9]
+
+[[parte 1/2] Vue, Vuex, Computed Properties e Getters com Fabio Vedovelli][10]
+
+[Vue.js do jeito ninja com Tiago Matos][11]
+
+[Grupy-SP e VueJS-SP Crossover Out 2019][14]
+
+[1]: https://www.django-rest-framework.org/
 [2]: https://vuejs.org/
-[3]: https://github.com/axios/axios
+[3]: https://pypi.org/project/django-cors-headers/
 [4]: https://gist.github.com/rg3915/6fad3d19f2b511ec5da40cef5a168ca5
-[5]: https://pypi.org/project/django-cors-headers/
+[5]: https://vuetifyjs.com/en/
+[6]: http://pythonclub.com.br/django-rest-framework-quickstart.html
+[7]: https://www.youtube.com/watch?v=UaaYVaEHo9w
+[8]: https://www.youtube.com/watch?v=3Po5Cw6cw98
+[9]: https://www.youtube.com/watch?v=17Ro7A3AqxU
+[10]: https://www.youtube.com/watch?v=d9GKdl3hxas
+[11]: https://www.youtube.com/watch?v=07-TvnH7XNo&list=PLcoYAcR89n-qq1vGRbaUiV6Q9puy0qigW
+[12]: https://www.youtube.com/watch?v=ZjgT8S65_pk&list=PLgMNBa0XaIgdFwU1I5Y89fAHdWMxY1ji6
+[13]: https://www.youtube.com/watch?v=zLCXSLTJNfw&list=PLgMNBa0XaIgdMt8edUbQmFnqL4g9ZgAxT
+[14]: https://www.youtube.com/playlist?list=PLs0UShRCaojIoUESSummFnigDE-ZiOKhB
